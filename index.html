@@ -24,11 +24,13 @@ progress{width:100%;height:8px}audio{width:100%;margin-top:10px}
 <small id="cnt">0 caracteres</small>
 </div>
 <div class="card grid">
-<div><label>Idioma</label><select id="lang">
+<div><label>Motor de voz</label><select id="eng"><option value="espeak">eSpeak (offline • baixa MP3/WAV)</option><option value="web">Voz do navegador / Google (só ouvir)</option></select></div>
+<div id="wv" hidden><label>Voz do navegador</label><select id="wvoice"></select></div>
+<div class="e1"><label>Idioma</label><select id="lang">
 <option value="pt">Português (Brasil)</option><option value="pt-pt">Português (Portugal)</option>
 <option value="es">Español</option><option value="en-us">English (US)</option>
 <option value="it">Italiano</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
-<div><label>Voz</label><select id="voice"></select></div>
+<div class="e1"><label>Voz</label><select id="voice"></select></div>
 <div><label>Nuance / estilo</label><select id="style"></select></div>
 </div>
 <div class="card grid">
@@ -102,7 +104,25 @@ const ts=(t,c)=>{const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=Math.floor
 const srtT=()=>cues.map((c,i)=>`${i+1}\n${ts(c[0],',')} --> ${ts(c[1],',')}\n${c[2]}\n`).join('\n');
 const vttT=()=>'WEBVTT\n\n'+cues.map(c=>`${ts(c[0],'.')} --> ${ts(c[1],'.')}\n${c[2]}\n`).join('\n');
 function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4e3)}
-gen.onclick=generate;stop.onclick=()=>{if(ctl)ctl.stop=true;au.pause()};
+gen.onclick=()=>eng.value==='web'?speakWeb():generate();
+stop.onclick=()=>{if(ctl)ctl.stop=true;au.pause();wtoken++;if('speechSynthesis' in window)speechSynthesis.cancel()};
+// ---- vozes do navegador (Google no Chrome/Android) — só reprodução
+let wtoken=0;
+function loadWV(){if(!('speechSynthesis' in window))return;const cur=wvoice.value,vs=speechSynthesis.getVoices().slice();
+ vs.sort((a,b)=>(/^pt-BR/i.test(b.lang)-/^pt-BR/i.test(a.lang))||(/google/i.test(b.name)-/google/i.test(a.name))||a.lang.localeCompare(b.lang));
+ wvoice.innerHTML='';vs.forEach(v=>wvoice.add(new Option(`${v.name} (${v.lang})${v.localService?' • local':' • online'}`,v.voiceURI)));if(cur)wvoice.value=cur}
+function speakWeb(){
+ if(!('speechSynthesis' in window))return st.textContent='Este navegador não tem vozes embutidas.';
+ const t=txt.value.trim();if(!t)return;speechSynthesis.cancel();const my=++wtoken;
+ const v=speechSynthesis.getVoices().find(x=>x.voiceURI===wvoice.value),parts=split(t);let i=0;
+ const next=()=>{if(my!==wtoken)return;if(i>=parts.length){st.textContent='Fim.';return}
+  const u=new SpeechSynthesisUtterance(parts[i][0]);if(v){u.voice=v;u.lang=v.lang}else u.lang='pt-BR';
+  u.rate=Math.min(3,Math.max(.3,speed.value/170));u.pitch=pitch.value/50;u.volume=Math.min(1,amp.value/100);
+  st.textContent=`Falando ${i+1}/${parts.length}…`;u.onend=()=>{i++;next()};
+  u.onerror=e=>{if(e.error!=='canceled'&&e.error!=='interrupted')st.textContent='Erro: '+e.error};speechSynthesis.speak(u)};next()}
+function setEng(){const w=eng.value==='web';document.querySelectorAll('.e1').forEach(e=>e.hidden=w);wv.hidden=!w;
+ [wav,mp3,srt,vtt].forEach(b=>b.hidden=w);au.pause();if(w){au.hidden=true;loadWV()}gen.textContent=w?'▶ Ouvir':'▶ Gerar e ouvir'}
+eng.onchange=setEng;if('speechSynthesis' in window)speechSynthesis.onvoiceschanged=loadWV;
 wav.onclick=()=>save(toWav(out),'voz.wav');
 mp3.onclick=()=>{st.textContent='Codificando MP3…';setTimeout(()=>{save(toMp3(out),'voz.mp3');st.textContent='MP3 pronto.'},30)};
 srt.onclick=()=>save(new Blob([srtT()],{type:'text/plain'}),'legenda.srt');
