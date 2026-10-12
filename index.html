@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Voz Livre — Texto para Fala (online e offline)</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--fg:#e8eaf0;--mut:#8b93a7;--ac:#6ea8fe;--bd:#2a2f3a}
+@media(prefers-color-scheme:light){:root{--bg:#f4f5f8;--card:#fff;--fg:#1a1d24;--mut:#667085;--ac:#2f6fed;--bd:#d9dce4}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+main{max-width:860px;margin:auto;padding:20px}h1{font-size:1.4rem;margin:.2em 0}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin:14px 0}
+textarea{width:100%;min-height:200px;background:transparent;color:inherit;border:1px solid var(--bd);border-radius:8px;padding:10px;font:inherit;resize:vertical}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+label{display:block;font-size:.85rem;color:var(--mut)}label b{color:var(--fg);float:right}
+select,input[type=range]{width:100%}select{padding:8px;border-radius:8px;background:var(--bg);color:var(--fg);border:1px solid var(--bd)}
+button{padding:10px 16px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--fg);cursor:pointer;font:inherit}
+button.p{background:var(--ac);color:#fff;border-color:var(--ac)}button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}small{color:var(--mut)}
+progress{width:100%;height:8px}audio{width:100%;margin-top:10px}
+</style></head><body><main>
+<h1>🎙️ Voz Livre</h1>
+<small>Texto para fala 100% no navegador. Sem limite de caracteres, sem internet depois da 1ª visita.</small>
+<div class="card">
+<textarea id="txt" placeholder="Cole ou digite seu texto aqui…">Olá! Este é um teste do meu conversor de texto em fala. Ele funciona online e offline.</textarea>
+<small id="cnt">0 caracteres</small>
+</div>
+<div class="card grid">
+<div><label>Idioma</label><select id="lang">
+<option value="pt">Português (Brasil)</option><option value="pt-pt">Português (Portugal)</option>
+<option value="es">Español</option><option value="en-us">English (US)</option>
+<option value="it">Italiano</option><option value="fr">Français</option><option value="de">Deutsch</option></select></div>
+<div><label>Voz</label><select id="voice"></select></div>
+<div><label>Nuance / estilo</label><select id="style"></select></div>
+</div>
+<div class="card grid">
+<div><label>Velocidade <b id="vs"></b></label><input type="range" id="speed" min="80" max="450"></div>
+<div><label>Tonalidade <b id="vp"></b></label><input type="range" id="pitch" min="0" max="99"></div>
+<div><label>Volume <b id="va"></b></label><input type="range" id="amp" min="10" max="200"></div>
+<div><label>Pausa entre palavras <b id="vg"></b></label><input type="range" id="gap" min="0" max="30"></div>
+</div>
+<div class="card">
+<div class="row">
+<button class="p" id="gen">▶ Gerar e ouvir</button><button id="stop">■ Parar</button>
+<button id="wav" disabled>⬇ WAV</button><button id="mp3" disabled>⬇ MP3</button>
+<button id="srt" disabled>⬇ Legenda .srt</button><button id="vtt" disabled>⬇ Legenda .vtt</button>
+</div>
+<progress id="pg" value="0" max="1" hidden></progress>
+<small id="st"></small><audio id="au" controls hidden></audio>
+</div>
+<small>Motor eSpeak-NG (voz sintética, leve e rápida). Tudo roda no seu aparelho; nada é enviado a servidores.</small>
+</main>
+<script src="vendor/mespeak.js"></script>
+<script src="vendor/lame.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const VOICES={pt:'voices/pt.json','pt-pt':'voices/pt-pt.json',es:'voices/es.json','en-us':'voices/en-us.json',it:'voices/it.json',fr:'voices/fr.json',de:'voices/de.json'};
+const VARS=[['m1','Masculina 1'],['m2','Masculina 2 (eco)'],['m3','Masculina 3'],['m4','Masculina 4 (grave)'],['m5','Masculina 5'],['m6','Masculina 6'],['m7','Masculina 7'],
+['f1','Feminina 1'],['f2','Feminina 2'],['f3','Feminina 3'],['f4','Feminina 4'],['f5','Feminina 5 (suave)'],['croak','Rouca/idosa'],['klatt3','Robô']];
+// speed, pitch, amp, gap, whisper
+const STYLES={Normal:[170,50,100,2,0],Forte:[165,55,200,1,0],Sussurrado:[140,45,70,4,1],Grave:[150,25,110,3,0],Agudo:[175,80,100,2,0],Calmo:[125,40,90,8,0],Animado:[210,65,130,0,0],'Narrador':[145,35,110,6,0],Apressado:[300,55,110,0,0]};
+VARS.forEach(([v,n])=>voice.add(new Option(n,v)));voice.value='f5';
+Object.keys(STYLES).forEach(n=>style.add(new Option(n,n)));
+function fmt(){vs.textContent=speed.value+' pal/min';vp.textContent=pitch.value;va.textContent=amp.value+'%';vg.textContent=gap.value;
+cnt.textContent=txt.value.length.toLocaleString('pt-BR')+' caracteres'}
+function applyStyle(){[speed.value,pitch.value,amp.value,gap.value]=STYLES[style.value];fmt()}
+style.onchange=applyStyle;applyStyle();
+[speed,pitch,amp,gap,txt].forEach(e=>e.oninput=fmt);
+// ---- carregar motor
+let cfg=null;const ids={};
+function ensure(lang){cfg=cfg||new Promise(r=>{meSpeak.loadConfig('vendor/mespeak_config.json');const t=setInterval(()=>{if(meSpeak.isConfigLoaded()){clearInterval(t);r()}},50)});
+ return cfg.then(()=>ids[lang]||new Promise((res,rej)=>meSpeak.loadVoice(VOICES[lang],(ok,id)=>ok?res(ids[lang]=id):rej(new Error('Falha ao carregar a voz')))))}
+// ---- síntese
+const bytes=new Map();let sr=22050,ctl=null,out=null,cues=[];
+function split(t){const parts=[];t.replace(/\r/g,'').split(/\n+/).forEach(p=>{p=p.trim();if(!p)return;
+ (p.match(/[^.!?…;]+[.!?…;]*\s*/g)||[p]).forEach(s=>{s=s.trim();while(s.length>220){let i=s.lastIndexOf(',',220);if(i<40)i=s.lastIndexOf(' ',220);if(i<1)i=220;parts.push([s.slice(0,i+1).trim(),0]);s=s.slice(i+1).trim()}if(s)parts.push([s,0])});
+ if(parts.length)parts[parts.length-1][1]=1});return parts}
+function pcm(buf){const d=new DataView(buf);sr=d.getUint32(24,true);let o=12;while(o<buf.byteLength-8){const id=String.fromCharCode(...new Uint8Array(buf,o,4)),n=d.getUint32(o+4,true);if(id==='data')return new Int16Array(buf.slice(o+8,o+8+n));o+=8+n+(n&1)}return new Int16Array(0)}
+const tick=()=>new Promise(r=>setTimeout(r,0));
+async function generate(){
+ const text=txt.value.trim();if(!text)return st.textContent='Digite um texto.';
+ ctl={stop:false};gen.disabled=true;pg.hidden=false;au.pause();
+ [wav,mp3,srt,vtt].forEach(b=>b.disabled=true);
+ try{st.textContent='Carregando voz…';const id=await ensure(lang.value);
+  let v=voice.value;if(STYLES[style.value][4])v=v[0]==='f'?'whisperf':'whisper';
+  const parts=split(text),chunks=[];cues=[];let total=0;
+  for(let i=0;i<parts.length;i++){if(ctl.stop)throw 0;
+   const [s,para]=parts[i];
+   const raw=meSpeak.speak(s,{voice:id,variant:v,speed:+speed.value,pitch:+pitch.value,amplitude:+amp.value,wordgap:+gap.value,rawdata:'arraybuffer'});
+   const a=raw?pcm(raw):new Int16Array(0);const pause=new Int16Array(Math.round(sr*(para?0.7:0.25)));
+   cues.push([total/sr,(total+a.length)/sr,s]);chunks.push(a,pause);total+=a.length+pause.length;
+   pg.value=(i+1)/parts.length;st.textContent=`Gerando ${i+1}/${parts.length}…`;if(i%3==2)await tick()}
+  const all=new Int16Array(total);let o=0;chunks.forEach(c=>{all.set(c,o);o+=c.length});out=all;
+  au.src=URL.createObjectURL(toWav(all));au.hidden=false;au.play();
+  [wav,mp3,srt,vtt].forEach(b=>b.disabled=false);
+  st.textContent=`Pronto: ${(total/sr).toFixed(1)} s de áudio, ${parts.length} trechos.`;
+ }catch(e){st.textContent=e?('Erro: '+e.message):'Interrompido.'}
+ gen.disabled=false;pg.hidden=true}
+function toWav(s){const b=new ArrayBuffer(44+s.length*2),d=new DataView(b),w=(o,t)=>[...t].forEach((c,i)=>d.setUint8(o+i,c.charCodeAt(0)));
+ w(0,'RIFF');d.setUint32(4,36+s.length*2,true);w(8,'WAVEfmt ');d.setUint32(16,16,true);d.setUint16(20,1,true);d.setUint16(22,1,true);d.setUint32(24,sr,true);d.setUint32(28,sr*2,true);d.setUint16(32,2,true);d.setUint16(34,16,true);w(36,'data');d.setUint32(40,s.length*2,true);
+ new Int16Array(b,44).set(s);return new Blob([b],{type:'audio/wav'})}
+function toMp3(s){const e=new lamejs.Mp3Encoder(1,sr,128),p=[];for(let i=0;i<s.length;i+=1152){const x=e.encodeBuffer(s.subarray(i,i+1152));if(x.length)p.push(x)}p.push(e.flush());return new Blob(p,{type:'audio/mpeg'})}
+const ts=(t,c)=>{const h=Math.floor(t/3600),m=Math.floor(t%3600/60),s=Math.floor(t%60),ms=Math.round(t%1*1000);const z=(n,l=2)=>String(n).padStart(l,'0');return `${z(h)}:${z(m)}:${z(s)}${c}${z(ms,3)}`};
+const srtT=()=>cues.map((c,i)=>`${i+1}\n${ts(c[0],',')} --> ${ts(c[1],',')}\n${c[2]}\n`).join('\n');
+const vttT=()=>'WEBVTT\n\n'+cues.map(c=>`${ts(c[0],'.')} --> ${ts(c[1],'.')}\n${c[2]}\n`).join('\n');
+function save(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4e3)}
+gen.onclick=generate;stop.onclick=()=>{if(ctl)ctl.stop=true;au.pause()};
+wav.onclick=()=>save(toWav(out),'voz.wav');
+mp3.onclick=()=>{st.textContent='Codificando MP3…';setTimeout(()=>{save(toMp3(out),'voz.mp3');st.textContent='MP3 pronto.'},30)};
+srt.onclick=()=>save(new Blob([srtT()],{type:'text/plain'}),'legenda.srt');
+vtt.onclick=()=>save(new Blob([vttT()],{type:'text/vtt'}),'legenda.vtt');
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js');
+</script></body></html>
